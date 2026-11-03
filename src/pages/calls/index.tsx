@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, PhoneCall, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Download, ExternalLink, Loader2, PhoneCall, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAuth } from "@/context/auth";
 import { useBranches } from "@/hooks/use-branches";
-import { useCalls } from "@/hooks/use-calls";
+import { useCalls, useCallsSummary, useExportCalls } from "@/hooks/use-calls";
 import { useUsers } from "@/hooks/use-users";
 import { cn } from "@/lib/utils";
 import type { CallDirection, CallsListParams } from "@/types/calls";
@@ -130,7 +130,18 @@ export default function CallsPage() {
   }, [q, dir, by, branch, range, fromParam, toParam, sort, order, page, isStaff]);
 
   const { data, isLoading, isError, refetch, isFetching } = useCalls(params);
+    // Filters only (no page, page size or sort), shared by the cards and the export
+  const filterParams = useMemo(() => {
+    const { page, page_size, ordering, ...rest } = params;
+    void page;
+    void page_size;
+    void ordering;
+    return rest;
+  }, [params]);
 
+  const summaryQuery = useCallsSummary(filterParams);
+  const exportCalls = useExportCalls();
+  const summary = summaryQuery.data;
   // Options for the "Logged by" and branch filters
   const usersQuery = useUsers(1, 100);
   const branchesQuery = useBranches(1, 100, "", isStaff);
@@ -156,12 +167,48 @@ export default function CallsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-brand font-mono text-[11px] font-bold tracking-wider uppercase">CRM Workspace</p>
-        <h1 className="font-headline mt-1 text-3xl font-semibold tracking-tight">Calls</h1>
-        <p className="text-muted-foreground mt-1 text-sm">Every call logged across leads.</p>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-brand font-mono text-[11px] font-bold tracking-wider uppercase">CRM Workspace</p>
+          <h1 className="font-headline mt-1 text-3xl font-semibold tracking-tight">Calls</h1>
+          <p className="text-muted-foreground mt-1 text-sm">Every call logged across leads.</p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => exportCalls.mutate(filterParams)}
+          disabled={exportCalls.isPending}
+        >
+          {exportCalls.isPending ? <Loader2 className="animate-spin" /> : <Download />}
+          Export CSV
+        </Button>
       </div>
-
+            {/* Summary cards */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="bg-card rounded-xl border p-4">
+          <p className="text-muted-foreground text-xs">Total calls</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums">{summary?.total_calls ?? 0}</p>
+          <p className="text-muted-foreground mt-1 text-xs">
+            {summary?.inbound ?? 0} inbound · {summary?.outbound ?? 0} outbound
+          </p>
+        </div>
+        <div className="bg-card rounded-xl border p-4">
+          <p className="text-muted-foreground text-xs">Talk time</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums">{formatMMSS(summary?.talk_seconds ?? 0)}</p>
+        </div>
+        <div className="bg-card rounded-xl border p-4">
+          <p className="text-muted-foreground text-xs">Average duration</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums">{formatMMSS(Math.round(summary?.average_seconds ?? 0))}</p>
+        </div>
+        <div className="bg-card rounded-xl border p-4">
+          <p className="text-muted-foreground text-xs">Connect rate</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums">
+            {summary && summary.total_calls > 0
+              ? `${Math.round((summary.connected_calls / summary.total_calls) * 100)}%`
+              : "0%"}
+          </p>
+          <p className="text-muted-foreground mt-1 text-xs">{summary?.connected_calls ?? 0} connected</p>
+        </div>
+      </div>
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative max-w-sm min-w-[13rem] flex-1">
